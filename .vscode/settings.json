@@ -1,9 +1,9 @@
 {
   "window.zoomLevel": 1,
   "breadcrumbs.enabled": false,
-  "editor.fontSize": 14,
-  "debug.console.fontSize": 14,
-  "terminal.integrated.fontSize": 14,
+  "editor.fontSize": 12,
+  "debug.console.fontSize": 12,
+  "terminal.integrated.fontSize": 12,
   "editor.glyphMargin": false,
   "workbench.activityBar.location": "hidden",
   "editor.lineNumbers": "off",
