@@ -1,81 +1,54 @@
-import pandas as pd
-import io
+from app.classes.data_processor import DataProcessor
+from app.classes.table_creator import TableCreator
+from app.classes.table_merger import TableMerger
+from app.classes.table_processor import TableProcessor
+from app.utils.save_file import save_local_file_csv
 
-def process_sap_report(file_content):
-    # Processar o conteúdo do arquivo
-    lines = file_content.split('\n')
-    
-    # Encontrar o início da tabela de dados
-    start_indices = [i for i, line in enumerate(lines) if line.startswith('| Tp.operaç.|Dt.lçto.  |Criado em |')]
-    
-    if not start_indices:
-        return pd.DataFrame()  # Retorna DataFrame vazio se não encontrar os cabeçalhos
-    
-    # Coletar todas as linhas de dados
-    data_lines = []
-    for start_idx in start_indices:
-        # Pegar linhas até a próxima linha divisória longa
-        end_idx = start_idx + 1
-        while end_idx < len(lines) and not lines[end_idx].startswith('--------------------------------------------------------------------------------------------------------------------------------'):
-            end_idx += 1
-        
-        # Adicionar as linhas de dados (ignorando linhas de cabeçalho e divisórias)
-        data_lines.extend([line for line in lines[start_idx+1:end_idx] 
-                          if line.startswith('|') and not line.startswith('|--')])
-    
-    # Juntar todas as linhas de dados e criar um DataFrame
-    data_str = '\n'.join(data_lines)
-    
-    # Ler como CSV usando pipe como delimitador
-    df = pd.read_csv(io.StringIO(data_str), 
-                    delimiter='|', 
-                    header=None,
-                    skipinitialspace=True,
-                    dtype=str,
-                    na_values=['', ' '],
-                    keep_default_na=False)
-    
-    # Remover colunas vazias (geradas pelos pipes no início e fim de cada linha)
-    df = df.dropna(how='all', axis=1)
-    
-    # Definir os nomes das colunas (baseado no cabeçalho original)
-    columns = [
-        'Tp.operaç.', 'Dt.lçto.', 'Criado em', 'CDst', 'CtgI', 'TpDV', 'TipFt', 
-        'Contract', 'OrdCliente', 'Nº doc.ref', 'Artigo', 'Cliente', 'Dom./Exp.', 
-        'IC / TP', 'Quant_BUM', 'Sales revenue', 'Freight bi', 'Insurance', 
-        'IC Com Inc', 'ContMarkup', 'Discount', 'A_Sales_de', 'COGS Cux.o', 
-        'c_MOC', 'F.prod.cos', 'A_Freight', 'O_Revenue', 'V.prod.cos', 
-        'Other Disc', 'UMB1', 'UMB2', 'Qtd.vendas'
-    ]
-    
-    # Verificar se o número de colunas bate
-    if len(df.columns) == len(columns):
-        df.columns = columns
-    else:
-        # Se não bater, usar as colunas genéricas
-        df.columns = [f'Col_{i}' for i in range(len(df.columns))]
-    
-    # Limpeza dos dados - remover espaços em branco
-    df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)
-    
-    # Converter colunas numéricas
-    numeric_cols = ['Quant_BUM', 'Sales revenue', 'Freight bi', 'Insurance', 
-                   'IC Com Inc', 'ContMarkup', 'Discount', 'A_Sales_de', 
-                   'COGS Cux.o', 'c_MOC', 'F.prod.cos', 'A_Freight', 
-                   'O_Revenue', 'V.prod.cos', 'Other Disc', 'Qtd.vendas']
-    
-    for col in numeric_cols:
-        if col in df.columns:
-            # Substituir vírgula por ponto e converter para float
-            df[col] = df[col].str.replace('.', '').str.replace(',', '.').str.strip()
-            df[col] = pd.to_numeric(df[col], errors='coerce')
-    
-    return df
+from tabulate import tabulate
 
-# Exemplo de uso:
-with open('./data/files/KE24_2024.TXT', 'r', encoding='latin1') as f:
-    file_content = f.read()
+file_content_billing = './data/files/billing_hp_2024.csv'
+file_content_general_data = './data/files/general_data.xlsx'
 
-df = process_sap_report(file_content)
-# df.to_csv('Amostra.csv')
-print(df.head())
+data_billing_ytd = DataProcessor.type_columns(file_content_billing).data
+data_customers = DataProcessor.type_columns(file_content_general_data, sheet_name="Customers").data
+data_volume = DataProcessor.type_columns(file_content_general_data, sheet_name="Volume").data
+data_products = DataProcessor.type_columns(file_content_general_data, sheet_name="Products").data
+
+table_main = TableCreator.create_table_main(data_customers, data_products).data
+table_customers = TableCreator.create_table_customers(data_customers).data
+table_billing_ytd = TableCreator.create_table_billing_ytd(data_billing_ytd).data
+table_pareto_customers = TableCreator.create_table_pareto_customers(table_billing_ytd).data
+table_volume_sku = TableCreator.create_table_volume_sku(data_volume).data
+table_pareto_private_customers = TableCreator.create_table_pareto_private_customers(table_billing_ytd, table_customers).data
+table_pareto_products = TableCreator.create_table_pareto_products(table_billing_ytd).data
+table_portfolio = TableCreator.create_table_portfolio(table_billing_ytd, table_pareto_products).data
+table_billing_customers_sba = TableCreator.create_table_billing_customers_sba(table_billing_ytd).data
+table_billing_customers_hospital_care = TableCreator.create_table_billing_customers_hospital_care(table_billing_ytd).data
+table_purchase_frequency = TableCreator.create_table_purchase_frequency(data_billing_ytd).data
+table_last_month_purchase = TableCreator.create_table_last_month_purchase(data_billing_ytd).data
+
+table_merge = TableMerger.merge_table_main(
+    table_main,
+    table_billing_ytd,
+    table_customers,
+    table_volume_sku,
+    table_pareto_customers,
+    table_pareto_private_customers,
+    table_pareto_products,
+    table_portfolio,
+    table_billing_customers_sba,
+    table_billing_customers_hospital_care,
+    table_purchase_frequency,
+    table_last_month_purchase,
+).data
+
+table_params = TableProcessor.create_params(table_merge).data
+table_coefficient = TableProcessor.create_coefficient(table_params).data
+
+save_local_file_csv(table_coefficient, name='table_iv_fluids')
+
+print(tabulate(table_coefficient.info(), headers='keys', tablefmt='psql'))
+
+
+
+
