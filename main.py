@@ -3,6 +3,7 @@ from app.classes.table_creator import TableCreator
 from app.classes.table_merger import TableMerger
 from app.classes.table_processor import TableProcessor
 from app.utils.save_file import save_local_file_csv
+from app.utils.treat_table import format_float_2_decimal
 
 from tabulate import tabulate
 
@@ -40,14 +41,17 @@ table_merge = TableMerger.merge_table_main(
     table_billing_customers_hospital_care,
     table_purchase_frequency,
     table_last_month_purchase,
+    ['IV FLUIDS & IRRIGATION', 'DRUGS']
 ).data
 
 table_params = TableProcessor.create_params(table_merge).data
-table_coefficient = TableProcessor.create_coefficient(table_params).data
+table_coefficient_normalized = TableProcessor.create_coefficient_normalized(table_params).data
 
-save_local_file_csv(table_coefficient, name='table_iv_fluids')
+format_float_2_decimal(table_coefficient_normalized, 4)
 
-print(tabulate(table_coefficient.info(), headers='keys', tablefmt='psql'))
+save_local_file_csv(table_coefficient_normalized, name='table_iv_fluids')
+
+print(tabulate(table_coefficient_normalized.info(), headers='keys', tablefmt='psql'))
 
 
 

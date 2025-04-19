@@ -231,6 +231,6 @@ class TableCreator:
     def create_table_volume_sku(cls, table):
         table_volume_sku = table.loc[
             (table['Mês n']==actual_month),
-            ['SKU', 'REGIONAL', 'Mês n', 'Volume']].reset_index(drop=True)
+            ['SKU', 'REGIONAL', 'Volume']].reset_index(drop=True)
 
         return cls(table_volume_sku)

@@ -34,8 +34,4 @@ class TableMerger:
 
         table = table.fillna(0)
 
-        #Formatar decimais das colunas igual a float
-        float_columns = table.select_dtypes(include=['float64']).columns
-        table[float_columns] = table[float_columns].map(lambda x: round(x, 2))
-
         return cls(table)
