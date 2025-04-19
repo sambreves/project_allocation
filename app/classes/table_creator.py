@@ -11,8 +11,15 @@ PESO_DISTRIBUIDOR_DRUGS = 0.3
 PESO_PUBLICO_FLUIDS = 5
 PESO_PUBLICO_DRUGS = 1.7
 PESO_GRUPOS_IMPORTANTES_DRUGS = 1.8
+DATA_HOJE = datetime.datetime.now().strftime('%Y-%m-%d')
+HORA_ATUAL = datetime.datetime.now().strftime('%H.%M.%S')
+NUM_CAIXAS_LIPURO_50ML = 10
+NUM_CAIXAS_LIPURO_20ML = 5
+NUM_CAIXAS_LIPURO_100ML = 10
+
 actual_month = datetime.date.today().month
-last_year = (datetime.date.today().year - 1)
+actual_year = datetime.date.today().year
+last_year = (actual_year - 1)
 
 class TableCreator:
 
@@ -234,3 +241,58 @@ class TableCreator:
             ['SKU', 'REGIONAL', 'Volume']].reset_index(drop=True)
 
         return cls(table_volume_sku)
+    
+    @classmethod
+    def create_table_pending(cls, table):
+        table_pending = table.copy()
+
+        table_pending['DataPreparo'] = pd.to_datetime(table_pending['DataPreparo'], format='mixed')
+        table_pending = table_pending.loc[(table_pending['ano'] == datetime.datetime.now().year), :]
+        table_pending = table_pending.loc[table_pending['DataPreparo'] <= DATA_HOJE, :]
+        table_pending = table_pending.groupby(['CC', 'SKU'])['Pendente'].sum().reset_index()
+
+        table_pending['Pendente'] = np.where(table_pending['SKU'] == '3547817', table_pending['Pendente'] * NUM_CAIXAS_LIPURO_50ML, table_pending['Pendente'])
+        table_pending['Pendente'] = np.where(table_pending['SKU'] == '3547825', table_pending['Pendente'] * NUM_CAIXAS_LIPURO_20ML, table_pending['Pendente'])
+        table_pending['Pendente'] = np.where(table_pending['SKU'] == '3547833', table_pending['Pendente'] * NUM_CAIXAS_LIPURO_100ML, table_pending['Pendente'])
+
+        return cls(table_pending)
+    
+    @classmethod
+    def create_table_billing_actual_year(cls, table):
+        # Filtra os dados do último ano
+        table_billing = table[table['Ano'] == actual_year]
+
+        # Agrupa e soma os valores necessários
+        aggregation_columns = ['Quantidade', 'SalesRevenue', 'ASalesDe', 'COGS', 'ContMarkup', 
+                               'Discount', 'FprodCos', 'FreteBi', 'Insurance', 'MOC', 'VprodCos', 
+                               'AFrete', 'ICComInc']
+        table_billing = table_billing.groupby([
+            'CC', 'SKU', 'Terapia'
+        ])[aggregation_columns].sum().reset_index()
+
+        # Calcula os custos e receitas
+        table_billing['Costs_YTD'] = table_billing[['FprodCos', 'VprodCos', 'COGS', 'MOC']].sum(axis=1)
+        table_billing['Sales_YTD'] = table_billing['SalesRevenue'] - table_billing['Discount'] + table_billing[[
+            'FreteBi', 'Insurance', 'ContMarkup', 'ICComInc'
+        ]].sum(axis=1) - table_billing['ASalesDe']
+        table_billing['Sales+_YTD'] = table_billing['Sales_YTD'] - table_billing['AFrete']
+        table_billing['GPS_YTD'] = table_billing['Sales_YTD'] - table_billing['Costs_YTD']
+        table_billing['GPS+_YTD'] = table_billing['Sales+_YTD'] - table_billing['Costs_YTD']
+
+        # Calcula as porcentagens
+        table_billing['PercentGPS+_YTD'] = np.where(
+            table_billing['Sales+_YTD'] == 0, 0, table_billing['GPS+_YTD'] / abs(table_billing['Sales+_YTD'])
+        )
+        table_billing['PercentGPS_YTD'] = np.where(
+            table_billing['Sales_YTD'] == 0, 0, table_billing['GPS_YTD'] / abs(table_billing['Sales_YTD'])
+        )
+
+        # Seleciona e renomeia as colunas
+        selected_columns = ['CC', 'SKU', 'Quantidade', 'SalesRevenue', 'PercentGPS+_YTD']
+        table_billing = table_billing[selected_columns]
+        table_billing.columns = ['CC', 'SKU', 'Qtd_AY', 'SalesRevenue_AY', 'PercentGPS+_AY']
+
+        # Preenche valores nulos com zero
+        table_billing = table_billing.fillna(0)
+
+        return cls(table_billing)

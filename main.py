@@ -14,6 +14,8 @@ data_billing_ytd = DataProcessor.type_columns(file_content_billing).data
 data_customers = DataProcessor.type_columns(file_content_general_data, sheet_name="Customers").data
 data_volume = DataProcessor.type_columns(file_content_general_data, sheet_name="Volume").data
 data_products = DataProcessor.type_columns(file_content_general_data, sheet_name="Products").data
+data_billing_ay = DataProcessor.type_columns(file_content_general_data, sheet_name="Billing").data
+data_pending = DataProcessor.type_columns(file_content_general_data, sheet_name="OV").data
 
 table_main = TableCreator.create_table_main(data_customers, data_products).data
 table_customers = TableCreator.create_table_customers(data_customers).data
@@ -27,6 +29,9 @@ table_billing_customers_sba = TableCreator.create_table_billing_customers_sba(ta
 table_billing_customers_hospital_care = TableCreator.create_table_billing_customers_hospital_care(table_billing_ytd).data
 table_purchase_frequency = TableCreator.create_table_purchase_frequency(data_billing_ytd).data
 table_last_month_purchase = TableCreator.create_table_last_month_purchase(data_billing_ytd).data
+table_pending = TableCreator.create_table_pending(data_pending).data
+table_billing_ay = TableCreator.create_table_billing_actual_year(data_billing_ay).data
+
 
 table_merge = TableMerger.merge_table_main(
     table_main,
@@ -41,6 +46,8 @@ table_merge = TableMerger.merge_table_main(
     table_billing_customers_hospital_care,
     table_purchase_frequency,
     table_last_month_purchase,
+    table_pending,
+    table_billing_ay,
     ['IV FLUIDS & IRRIGATION', 'DRUGS']
 ).data
 

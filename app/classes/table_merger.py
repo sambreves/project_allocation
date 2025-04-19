@@ -17,6 +17,8 @@ class TableMerger:
             table_billing_customers_hospital_care,
             table_purchase_frequency,
             table_last_month_purchase,
+            table_pending,
+            table_billing_ay,
             filter=['IV FLUIDS & IRRIGATION']
     ):
         table = table_main.merge(table_customers[['CC', 'CD', 'Customer Group 1', 'REGIONAL', 'ClasseABC', 'GrupoKAM']], on='CC', how='left')
@@ -30,7 +32,9 @@ class TableMerger:
         table = table.merge(table_billing_customers_sba, on=['CC', 'Terapia'], how='left')
         table = table.merge(table_billing_customers_hospital_care, on='CC', how='left')
         table = table.merge(table_purchase_frequency, on=['CC', 'SKU'], how='left')
-        table = table.merge(table_last_month_purchase, on=['CC', 'SKU'], how='left')        
+        table = table.merge(table_last_month_purchase, on=['CC', 'SKU'], how='left')
+        table = table.merge(table_pending, on=['CC', 'SKU'], how='left')
+        table = table.merge(table_billing_ay, on=['CC', 'SKU'], how='left')        
 
         table = table.fillna(0)
 
