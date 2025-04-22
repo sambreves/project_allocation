@@ -259,7 +259,7 @@ class TableCreator:
     
     @classmethod
     def create_table_billing_actual_year(cls, table):
-        # Filtra os dados do último ano
+        # Filtra os dados do ano atual
         table_billing = table[table['Ano'] == actual_year]
 
         # Agrupa e soma os valores necessários
@@ -267,7 +267,7 @@ class TableCreator:
                                'Discount', 'FprodCos', 'FreteBi', 'Insurance', 'MOC', 'VprodCos', 
                                'AFrete', 'ICComInc']
         table_billing = table_billing.groupby([
-            'CC', 'SKU', 'Terapia'
+            'CC', 'SKU'
         ])[aggregation_columns].sum().reset_index()
 
         # Calcula os custos e receitas

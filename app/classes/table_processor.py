@@ -2,6 +2,7 @@ from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.decomposition import PCA
 
 import pandas as pd
+import numpy as np
 
 class TableProcessor:
     def __init__(self, data):
@@ -19,10 +20,26 @@ class TableProcessor:
         table_params['consumo_recorrencia'] = (table_params['Qtd_YTD'] / table_params['qtd_meses_faturados'])
 
         table_params[[
-            'percent_recorrencia', 'sales_IV FLUIDS & IRRIGATION/Hopistal Care', 'sales_DRUGS/Hopistal Care', 'consumo_recorrencia'
+            'percent_recorrencia', 
+            'sales_IV FLUIDS & IRRIGATION/Hopistal Care', 
+            'sales_DRUGS/Hopistal Care', 
+            'consumo_recorrencia'
         ]] = table_params[[
-            'percent_recorrencia', 'sales_IV FLUIDS & IRRIGATION/Hopistal Care', 'sales_DRUGS/Hopistal Care', 'consumo_recorrencia'
+            'percent_recorrencia', 
+            'sales_IV FLUIDS & IRRIGATION/Hopistal Care', 
+            'sales_DRUGS/Hopistal Care', 
+            'consumo_recorrencia'
         ]].fillna(0)
+
+        table_params['novo'] = np.where(
+            (
+                table_params['Qtd_AY'] > 0
+            ) & (
+                table_params['Qtd_YTD'] == 0
+            ),
+            1,
+            0
+        )
 
         return cls(table_params)
 
@@ -68,7 +85,8 @@ class TableProcessor:
                 f'portfolio_strategic_{sba}',
                 f'PercentGPS+_YTD',
                 f'percent_recorrencia',
-                f'sales_{sba}/Hopistal Care'
+                f'sales_{sba}/Hopistal Care',
+                f'novo'
             ]
             # Verificação de colunas
             for col in columns_coefficient:
@@ -79,8 +97,9 @@ class TableProcessor:
                 f'sales_revenue_{sba}_ytd': 0.15,
                 f'portfolio_strategic_{sba}': 0.17,
                 f'PercentGPS+_YTD': 0.20,
-                f'percent_recorrencia': 0.35,
-                f'sales_{sba}/Hopistal Care': 0.13,
+                f'percent_recorrencia': 0.30,
+                f'sales_{sba}/Hopistal Care': 0.08,
+                f'novo': 0.10
             }
 
             # Se weights não forem passados, usa 1 para todos

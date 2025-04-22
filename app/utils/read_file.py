@@ -82,5 +82,5 @@ def process_data_csv(file_content):
 
 def process_data_excel(file_content, sheet_name=0):
     #Abrindo file e fazendo enconding
-    df = pd.read_excel(file_content, sheet_name=sheet_name)
+    df = pd.read_excel(file_content, sheet_name=sheet_name, dtype={'CC': str, 'SKU': str})
     return df
