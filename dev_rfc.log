@@ -1,0 +1,53 @@
+
+**** Log file opened at 2025-07-18 11:29:54.918435 UTC-03:00 (Hora oficial do Brasil), Encoding UTF-8
+NW RFC Library: Kernel variant, Release 750 Patch Level 11
+Compilation date          : Jan 25 2023 01:21:13
+CPIC library              : 753.2022.12.23 version 3
+NI library                : 40
+Kernel Release            : 753 Patch Level 1116
+Current working directory : C:\Users\feitsa06\projeto_allocation
+Program                   : python
+Process ID                : 12964
+User                      : feitsa06
+Hardware                  : PC with Windows NT 8x AMD64 Level 6 (Mod 140 Step 1)
+Operating_system          : Windows NT 10.0
+Hostname                  : BR02-C1209
+IP address                : 10.192.14.93
+IPv6 address              : ::1
+Global trace level        : 0
+
+2025-07-18 11:29:54.904971 [12432] >> Info entry
+	Did not find config file C:\Users\feitsa06\projeto_allocation\sapnwrfc.ini.
+
+**** Log file opened at 2025-07-24 10:19:09.930557 UTC-03:00 (Hora oficial do Brasil), Encoding UTF-8
+NW RFC Library: Kernel variant, Release 750 Patch Level 11
+Compilation date          : Jan 25 2023 01:21:13
+CPIC library              : 753.2022.12.23 version 3
+NI library                : 40
+Kernel Release            : 753 Patch Level 1116
+Current working directory : C:\Users\feitsa06\projeto_allocation
+Program                   : python
+Process ID                : 13516
+User                      : feitsa06
+Hardware                  : PC with Windows NT 8x AMD64 Level 6 (Mod 140 Step 1)
+Operating_system          : Windows NT 10.0
+Hostname                  : BR02-C1209
+IP address                : 192.168.1.8
+IPv6 address              : ::1
+Global trace level        : 0
+
+2025-07-24 10:19:09.924874 [23528] >> Error entry
+	[Handle: 2470529187840	ConvID: 	Target: 	SysID: 	SysNr: 	User: 	Codepage: 4103]
+	RfcCommunicationException: Return Value: 20, Code: RFC_COMMUNICATION_FAILURE, Message: 
+LOCATION    CPIC (TCP/IP) on local host with Unicode
+ERROR       hostname 'bbmagsh.bbmag.bbraun.com' unknown
+TIME        Thu Jul 24 10:19:09 2025
+RELEASE     753
+COMPONENT   NI (network interface)
+VERSION     40
+RC          -2
+MODULE      D:/depot/bas/753_REL/src/base/ni/nixxhl.cpp
+LINE        198
+DETAIL      NiHLGetNodeAddr: hostname cached as unknown
+COUNTER     3
+

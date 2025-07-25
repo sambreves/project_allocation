@@ -1,7 +1,10 @@
 import pandas as pd
 import numpy as np
 import datetime
+from tabulate import tabulate
 
+LIMITE_MAX_CONSUMO_ESTOQUE = 0.81
+LIMITE_MAX_CONSUMO_SALDO_REGIONAL = 1.33
 LIMITE_MAX_SKU_ESTRATEGICO_FLUIDS = 0.85
 LIMITE_MAX_SKU_ESTRATEGICO_DRUGS= 0.97
 PESO_CAM_FLUIDS = 0.5
@@ -17,9 +20,18 @@ NUM_CAIXAS_LIPURO_50ML = 10
 NUM_CAIXAS_LIPURO_20ML = 5
 NUM_CAIXAS_LIPURO_100ML = 10
 
+SKU = ['200102', '200104', '200105', '200110', '200111', '200112', '200114', '200115', '200124', '200125',
+        '200130', '200131', '200132', '200134', '200135','200142', '200154', '200164',
+        '200165', '200181', '200182', '200183', '3547825', '3547833', '3547817']
+
+GRUPOS_PRIORIDADE_LIPURO_50 = ['Oswaldo Cruz', 'HCOR', 'BP SP', 'Albert Einstein', 'São Camilo',
+                            'Real Hospital Portugues de', 'Santa Casa de Misericórdia da Bahia',
+                            'Erechim', 'Divina Providencia', "REDE D'OR", 'DASA', 'AMERICAS', 'AMIL']
+
 actual_month = datetime.date.today().month
 actual_year = datetime.date.today().year
 last_year = (actual_year - 1)
+last_month = (actual_month - 1)
 
 class TableCreator:
 
@@ -36,7 +48,7 @@ class TableCreator:
         table_main = pd.DataFrame([(cc, sku) for cc in list_cc for sku in list_sku], columns=['CC', 'SKU'])
 
         # Filtrar colunas relevantes de table_customers e table_products
-        table_customers = table_customers[['CC', 'REGIONAL', 'CD', 'ClasseABC']]
+        # table_customers = table_customers[['CC', 'REGIONAL', 'CD', 'ClasseABC']]
         # table_sba = table_products[
         #     table_products['Terapia'].isin(['IV FLUIDS & IRRIGATION', 'DRUGS', 'PARENTERAL NUTRITION'])
         # ][['SKU', 'Terapia']]
@@ -50,17 +62,20 @@ class TableCreator:
         return cls(table_customers)
 
     @classmethod
+    def create_table_products(cls, table):
+        table_products = table.loc[:, ['SKU', 'Terapia']]
+
+        return cls(table_products)
+
+    @classmethod
     def create_table_billing_ytd(cls, table):
-        # Calcula qual o ano passado
-        actual_year = datetime.date.today().year
-        last_year = actual_year - 1
-        # Filtra os dados do último ano
-        table_billing_ytd = table[table['Ano'] == last_year]
+        table_billing_ytd = table.copy()
 
         # Agrupa e soma os valores necessários
-        aggregation_columns = ['Quantidade', 'SalesRevenue', 'ASalesDe', 'COGS', 'ContMarkup', 
+        aggregation_columns = ['Quantidade', 'SalesRevenue', 'ASalesDe', 'COGS', 'ContMarkup',
                                'Discount', 'FprodCos', 'FreteBi', 'Insurance', 'MOC', 'VprodCos', 
                                'AFrete', 'ICComInc']
+        
         table_billing_ytd = table_billing_ytd.groupby([
             'CC', 'SKU', 'Terapia'
         ])[aggregation_columns].sum().reset_index()
@@ -131,10 +146,10 @@ class TableCreator:
             table_cum_sum_sales_private[f'%pareto_private_cc_{terapia}'] = table_cum_sum_sales_private['sales_revenue_cum'] / sum_sales_private
             table_cum_sum_sales_private = table_cum_sum_sales_private.drop(['SalesRevenue_YTD', 'sales_revenue_cum', 'Customer Group 1'], axis=1)
 
-        if result.empty:
-            result = table_cum_sum_sales_private
-        else:
-            result = result.merge(table_cum_sum_sales_private, on='CC', how='outer')
+            if result.empty:
+                result = table_cum_sum_sales_private
+            else:
+                result = result.merge(table_cum_sum_sales_private, on='CC', how='outer')
 
         result = result.fillna(0)
         return cls(result)
@@ -227,6 +242,13 @@ class TableCreator:
         table_purchase_frequency = table_purchase_frequency.groupby(['CC', 'SKU'])['Mês'].count().reset_index()
         table_purchase_frequency.columns = ['CC', 'SKU', 'qtd_meses_faturados']
         return cls(table_purchase_frequency)
+    
+    @classmethod
+    def create_table_purchase_frequency_customers(cls, table):
+        table_purchase_frequency_customers = table.loc[table['Quantidade'] != 0].groupby(['CC', 'Mês'])['Quantidade'].sum().reset_index()
+        table_purchase_frequency_customers = table_purchase_frequency_customers.groupby(['CC'])['Mês'].count().reset_index()
+        table_purchase_frequency_customers.columns = ['CC', 'qtd_meses_faturados_clientes']
+        return cls(table_purchase_frequency_customers)
 
     @classmethod
     def create_table_last_month_purchase(cls, table):
@@ -243,12 +265,13 @@ class TableCreator:
         return cls(table_volume_sku)
     
     @classmethod
-    def create_table_pending(cls, table):
+    def create_table_pending_customers(cls, table):
         table_pending = table.copy()
 
         table_pending['DataPreparo'] = pd.to_datetime(table_pending['DataPreparo'], format='mixed')
         table_pending = table_pending.loc[(table_pending['ano'] == datetime.datetime.now().year), :]
         table_pending = table_pending.loc[table_pending['DataPreparo'] <= DATA_HOJE, :]
+        table_pending = table_pending.loc[table_pending['Status verificações'] != 'B', :]
         table_pending = table_pending.groupby(['CC', 'SKU'])['Pendente'].sum().reset_index()
 
         table_pending['Pendente'] = np.where(table_pending['SKU'] == '3547817', table_pending['Pendente'] * NUM_CAIXAS_LIPURO_50ML, table_pending['Pendente'])
@@ -257,6 +280,22 @@ class TableCreator:
 
         return cls(table_pending)
     
+    @classmethod
+    def create_table_pending(cls, table):
+        table_pending = table.copy()
+
+        table_pending['DataPreparo'] = pd.to_datetime(table_pending['DataPreparo'], format='mixed')
+        table_pending = table_pending.loc[(table_pending['ano'] == datetime.datetime.now().year), :]
+        table_pending = table_pending.loc[table_pending['DataPreparo'] <= DATA_HOJE, :]
+        table_pending['OV'] = table_pending['OV'] + '_' + table_pending['Num Linha']
+        table_pending = table_pending.groupby(['OV', 'Num Linha', 'CC', 'SKU', 'CD', 'REGIONAL', 'Status verificações', 'DataPreparo', 'Valor item OV'])['Pendente'].sum().reset_index()
+
+        table_pending['Pendente'] = np.where(table_pending['SKU'] == '3547817', table_pending['Pendente'] * NUM_CAIXAS_LIPURO_50ML, table_pending['Pendente'])
+        table_pending['Pendente'] = np.where(table_pending['SKU'] == '3547825', table_pending['Pendente'] * NUM_CAIXAS_LIPURO_20ML, table_pending['Pendente'])
+        table_pending['Pendente'] = np.where(table_pending['SKU'] == '3547833', table_pending['Pendente'] * NUM_CAIXAS_LIPURO_100ML, table_pending['Pendente'])
+
+        return cls(table_pending)
+
     @classmethod
     def create_table_billing_actual_year(cls, table):
         # Filtra os dados do ano atual
@@ -296,3 +335,162 @@ class TableCreator:
         table_billing = table_billing.fillna(0)
 
         return cls(table_billing)
+    
+    @classmethod
+    def create_table_stock(cls, table):
+        table_stock = table.copy()
+        table_stock = table.groupby(['SKU', 'CD'])[['Estoque']].sum().reset_index()
+        return cls(table_stock)
+    
+    @classmethod
+    def create_table_volume_reg(cls, table):
+        table_volume_reg = table.copy()
+        table_volume_reg = table.loc[(table['Mês n']==actual_month), ['REGIONAL', 'SKU', 'Volume']]
+
+        return cls(table_volume_reg)
+
+    @classmethod
+    def create_table_billing_actual_month(cls, table):
+        # Filtra os dados do ano atual
+        table_billing = table[table['Ano'] == actual_year]
+        table_billing = table[table['Mês']== actual_month]
+
+        # Agrupa e soma os valores necessários
+        aggregation_columns = ['Quantidade']
+
+        table_billing = table_billing.groupby([
+            'CC', 'SKU'
+        ])[aggregation_columns].sum().reset_index()
+
+        # Seleciona e renomeia as colunas
+        selected_columns = ['CC', 'SKU', 'Quantidade',]
+        table_billing = table_billing[selected_columns]
+        table_billing.columns = ['CC', 'SKU', 'Qtd_AM',]
+
+        # Preenche valores nulos com zero
+        table_billing = table_billing.fillna(0)
+
+        return cls(table_billing)
+ 
+    @classmethod
+    def create_table_business_rules(cls, table):
+        # - Sem atendimento para distribuidor do produtos 3547817
+       
+        # 1 Analisar apenas produtos Pharma
+        # 2 Sem atendimento para produtos com estoque zero
+        # 3 Sem atendimento para produtos com volume zero
+        # 4 Sem atendimento para clientes com bloqueio
+        # 5 Sem atendimento para clientes com coefficient zero
+        # 6 Sem atendimento para clientes com consumo de volume ultrapassado
+        # 7 Sem atendimento para distribuidor quando consumo de estoque for maior que 80%
+        # 8 Sem atendimento para clientes que não são GRUPOS_PRIORIDADE do produto 3547817.
+
+        table_business_rules = table.copy()
+
+        # Criar coluna de consumo estoque e consumo volume
+        table_business_rules['sumPendente'] = table_business_rules.groupby(['SKU', 'CD'])['Pendente'].transform('sum')
+        table_business_rules['FaturamentoRegional'] = table_business_rules.groupby(['REGIONAL', 'SKU'])['Qtd_AM'].transform('sum')
+
+        table_business_rules['ConsumoEstoque'] = np.where(
+            table_business_rules['Estoque'] <= 0,
+            0,
+            (table_business_rules['sumPendente'] / table_business_rules['Estoque'])
+        )
+
+        table_business_rules['ConsumoSaldoRegional'] = np.where(
+            table_business_rules['Volume'] <= 0,
+            0,
+            (table_business_rules['FaturamentoRegional'] / table_business_rules['Volume'])
+        )
+
+        # Regra 1
+        table_business_rules = table_business_rules.loc[table_business_rules['SKU'].isin(SKU), :]
+
+        # Regra 2, 3, 4, 5, 6
+        table_business_rules['pending_analysis'] = np.where(
+            (
+                table_business_rules['ConsumoSaldoRegional'] > LIMITE_MAX_CONSUMO_SALDO_REGIONAL
+            ) | (
+                table_business_rules['Estoque'] <= 0
+            ) | (
+                table_business_rules['Volume'] <= 0
+            ) | (
+                table_business_rules['Status verificações'] == 'B'
+            ) | (
+                table_business_rules['coefficient_NM'] == 0
+            ),
+            0,
+            table_business_rules['Pendente']
+        )
+
+        # Regra 7
+        table_business_rules['pending_analysis'] = np.where(
+            (
+                table_business_rules['ConsumoEstoque'] > LIMITE_MAX_CONSUMO_ESTOQUE
+            ) & (
+                table_business_rules['Customer Group 1'] == 'Distribuidor'
+            ),
+            0,
+            table_business_rules['pending_analysis']
+        )
+
+        table_business_rules['pending_analysis'] = np.where(
+            (
+                table_business_rules['SKU'] == '3547817'
+            ) & (
+                ~table_business_rules['GrupoKAM'].isin(GRUPOS_PRIORIDADE_LIPURO_50)
+            ),
+            0,
+            table_business_rules['pending_analysis']
+        )
+
+
+        return cls(table_business_rules)
+
+    @classmethod
+    def create_table_representation_sales_sba(cls, table):
+        table_sba = table.copy()
+        list_sba = ['IV FLUIDS & IRRIGATION', 'DRUGS', 'PARENTERAL NUTRITION']
+        result = pd.DataFrame()
+
+        for sba in list_sba:
+            list_cc = table_sba.loc[(table_sba['Terapia']==sba) & (table_sba['SalesRevenue']>0), 'CC'].unique().tolist()
+
+            table_hp_with_sba = table_sba.loc[table_sba['CC'].isin(list_cc), ['CC', 'Terapia', 'SalesRevenue']]
+            table_hp_with_sba = table_hp_with_sba.groupby(['CC', 'Terapia'])['SalesRevenue'].sum().reset_index()
+            table_hp_with_sba.columns = ['CC', 'Terapia', f'sales_hp_with_{sba}']
+            
+            if result.empty:
+                result = table_hp_with_sba
+            else:
+                result = result.merge(table_hp_with_sba, on=['CC', 'Terapia'], how='outer')
+
+        result = result.fillna(0)
+
+
+        return cls(result)
+
+    @classmethod
+    def create_table_unit_price(cls, table):
+        
+        table_revenue = table.copy()
+        table_revenue = table_revenue.loc[(table_revenue['Quantidade'] > 0), :]
+
+        table_revenue.loc[:, 'unit_price'] = table_revenue['SalesRevenue'] / table_revenue['Quantidade']
+
+        table_revenue = table_revenue.sort_values(['CC', 'SKU', 'data'])
+
+        current_price = table_revenue.groupby(['CC', 'SKU']).tail(1)[['CC', 'SKU', 'unit_price']]
+        current_price = current_price.rename(columns={'unit_price': 'current_price'})
+        current_price['current_price'] = current_price['current_price'].map(lambda x: round(x, 2))
+
+        last_price = table_revenue.groupby(['CC', 'SKU']).nth(-2).reset_index()
+        last_price = last_price.loc[:, ['CC', 'SKU', 'unit_price', 'Mês', 'Ano']]
+        last_price = last_price.rename(columns={'unit_price': 'last_price', 'Mês': 'Mês_last_price', 'Ano': 'Ano_last_price'})
+        last_price['last_price'] = last_price['last_price'].map(lambda x: round(x, 2))
+
+        result = pd.merge(current_price, last_price, on=['CC', 'SKU'], how='left')
+
+        result['percent_price_variation'] = (result['current_price'] / result['last_price']) - 1
+        
+        return cls(result)
