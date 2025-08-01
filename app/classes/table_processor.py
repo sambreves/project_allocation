@@ -1,6 +1,6 @@
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.decomposition import PCA
-from pulp import *
+from pulp import LpProblem, LpVariable, lpSum, LpMinimize, PULP_CBC_CMD
 
 import pandas as pd
 import numpy as np
