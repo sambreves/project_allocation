@@ -44,19 +44,13 @@ def save_daily_allocation_OV(table):
         table_concat = pd.concat([table_published_1, data], axis = 0, ignore_index = True)
         table_concat = table_concat[table_concat.duplicated(keep=False)]
 
-        print(table_concat.head())
-
         if (table_concat.duplicated(subset=['OV', 'SKU']).sum()) > 0:
             table_published_2 = pd.concat([table_concat, data], axis = 0, ignore_index = True)
         else:
             table_published_2 = data
 
         table_published_2 = table_published_2.drop_duplicates(subset=['OV', 'SKU', 'Item SO'], keep=False)
-
-        print(table_published_1.info())
-        print()
-        print(data.info())
-
+        
         count = 2
 
         table_published_2.to_excel(f'./data/priorizations/Priorizações_{DATA_HOJE}_{count}.xlsx', index=False)

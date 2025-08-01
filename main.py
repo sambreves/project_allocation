@@ -7,12 +7,10 @@ from app.utils.treat_table import format_float_2_decimal
 
 from tabulate import tabulate
 
-file_content_billing = './data/files/billing_hp_2024.csv'
 file_content_general_data = './data/files/general_data.xlsx'
 
 data_billing_ytd = DataProcessor.type_columns(file_content_general_data, sheet_name="billing_hp_2024").data
 data_billing_ay = DataProcessor.type_columns(file_content_general_data, sheet_name="Billing").data
-
 data_billing = DataProcessor.concat_table_billing(data_billing_ytd, data_billing_ay).data
 
 data_customers = DataProcessor.type_columns(file_content_general_data, sheet_name="Customers").data
