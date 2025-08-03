@@ -43,6 +43,7 @@ def save_daily_allocation_OV(table):
 
         table_concat = pd.concat([table_published_1, data], axis = 0, ignore_index = True)
         table_concat = table_concat[table_concat.duplicated(keep=False)]
+        table_concat = table_concat.loc[table_concat['AllocatedVolume']==0, :]
 
         if (table_concat.duplicated(subset=['OV', 'SKU']).sum()) > 0:
             table_published_2 = pd.concat([table_concat, data], axis = 0, ignore_index = True)

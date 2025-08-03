@@ -34,7 +34,7 @@ try:
     #     )
     # )
 
-    file_path = f'./data/priorizations/Priorizações_{date_today}_1.xlsx'
+    file_path = f'./data/priorizations/Priorizações_{date_today}_2.xlsx'
 
     df = pd.read_excel(file_path)
 
