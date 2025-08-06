@@ -5,8 +5,6 @@ from app.classes.table_processor import TableProcessor
 from app.utils.save_file import save_local_file_xlsx, save_daily_allocation_OV, save_local_file_csv
 from app.utils.treat_table import format_float_2_decimal
 
-from tabulate import tabulate
-
 file_content_general_data = './data/files/general_data.xlsx'
 
 data_billing_ytd = DataProcessor.type_columns(file_content_general_data, sheet_name="billing_hp_2024").data
