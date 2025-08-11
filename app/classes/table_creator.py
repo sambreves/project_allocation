@@ -1,7 +1,6 @@
 import pandas as pd
 import numpy as np
 import datetime
-from tabulate import tabulate
 
 LIMITE_MAX_CONSUMO_ESTOQUE = 0.81
 LIMITE_MAX_CONSUMO_SALDO_REGIONAL = 1.33
