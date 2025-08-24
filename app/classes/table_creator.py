@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import datetime
+from unidecode import unidecode
 
 LIMITE_MAX_CONSUMO_ESTOQUE = 0.81
 LIMITE_MAX_CONSUMO_SALDO_REGIONAL = 1.33
@@ -22,6 +23,10 @@ NUM_CAIXAS_LIPURO_100ML = 10
 SKU = ['200102', '200104', '200105', '200110', '200111', '200112', '200114', '200115', '200124', '200125',
         '200130', '200131', '200132', '200134', '200135','200142', '200154', '200164',
         '200165', '200181', '200182', '200183', '3547825', '3547833', '3547817']
+
+SKU_IV_FLUIDS = ['200102', '200104', '200105', '200110', '200111', '200112', '200114', '200115', '200124', '200125',
+        '200130', '200131', '200132', '200134', '200135','200142', '200154', '200164',
+        '200165', '200181', '200182']
 
 GRUPOS_PRIORIDADE_LIPURO_50 = ['Oswaldo Cruz', 'HCOR', 'BP SP', 'Albert Einstein', 'São Camilo',
                             'Real Hospital Portugues de', 'Santa Casa de Misericórdia da Bahia',
@@ -56,7 +61,10 @@ class TableCreator:
 
     @classmethod
     def create_table_customers(cls, table):
-        table_customers = table.loc[:, ['CC', 'REGIONAL', 'ClasseABC', 'Customer Group 1', 'GrupoKAM', 'Nome 1', 'CD']]
+        table_customers = table.loc[:, ['CC', 'REGIONAL', 'ClasseABC', 'Customer Group 1', 'GrupoKAM', 'Nome 1', 'CD', 'Cidade', 'UF']]
+
+        table_customers['Cidade'] = table_customers['Cidade'].apply(lambda x: unidecode(str(x)).strip().title())
+        table_customers['UF'] = table_customers['UF'].str.strip().str.upper()
 
         return cls(table_customers)
 
@@ -287,7 +295,7 @@ class TableCreator:
         table_pending = table_pending.loc[(table_pending['ano'] == datetime.datetime.now().year), :]
         table_pending = table_pending.loc[table_pending['DataPreparo'] <= DATA_HOJE, :]
         table_pending['OV'] = table_pending['OV'] + '_' + table_pending['Num Linha']
-        table_pending = table_pending.groupby(['OV', 'Num Linha', 'CC', 'SKU', 'CD', 'REGIONAL', 'Status verificações', 'DataPreparo', 'Valor item OV'])['Pendente'].sum().reset_index()
+        table_pending = table_pending.groupby(['OV', 'Num Linha', 'CC', 'SKU', 'CD', 'REGIONAL', 'Status verificações', 'DataPreparo', 'Valor item OV', 'Denominação_2', 'Tipo de pedido'])['Pendente'].sum().reset_index()
 
         table_pending['Pendente'] = np.where(table_pending['SKU'] == '3547817', table_pending['Pendente'] * NUM_CAIXAS_LIPURO_50ML, table_pending['Pendente'])
         table_pending['Pendente'] = np.where(table_pending['SKU'] == '3547825', table_pending['Pendente'] * NUM_CAIXAS_LIPURO_20ML, table_pending['Pendente'])
@@ -383,6 +391,7 @@ class TableCreator:
         # 6 Sem atendimento para clientes com consumo de volume ultrapassado
         # 7 Sem atendimento para distribuidor quando consumo de estoque for maior que 80%
         # 8 Sem atendimento para clientes que não são GRUPOS_PRIORIDADE do produto 3547817.
+        # 9 Sem atendimento para pedidos com motivo de  recusa
 
         table_business_rules = table.copy()
 
@@ -402,10 +411,21 @@ class TableCreator:
             (table_business_rules['FaturamentoRegional'] / table_business_rules['Volume'])
         )
 
+        #Criar coluna de faturamento liquido por cliente
+        table_business_rules['current_price'] = np.where(
+            table_business_rules['current_price'] == 0,
+            table_business_rules['Valor item OV'] / table_business_rules['Pendente'],
+            table_business_rules['current_price']
+        )
+        table_business_rules['pendente_cc'] = table_business_rules.loc[table_business_rules['SKU'].isin(SKU_IV_FLUIDS)].groupby(['CC'])['Pendente'].transform('sum')
+        table_business_rules['average_price_cc'] = table_business_rules.loc[table_business_rules['SKU'].isin(SKU_IV_FLUIDS)].groupby(['CC'])['current_price'].transform('mean')
+
+        table_business_rules['sales_revenue_cc'] = table_business_rules['pendente_cc'] * table_business_rules['average_price_cc']
+
         # Regra 1
         table_business_rules = table_business_rules.loc[table_business_rules['SKU'].isin(SKU), :]
 
-        # Regra 2, 3, 4, 5, 6
+        # Regra 2, 3, 4, 5, 6, 9
         table_business_rules['pending_analysis'] = np.where(
             (
                 table_business_rules['ConsumoSaldoRegional'] > LIMITE_MAX_CONSUMO_SALDO_REGIONAL
@@ -417,6 +437,8 @@ class TableCreator:
                 table_business_rules['Status verificações'] == 'B'
             ) | (
                 table_business_rules['coefficient_NM'] == 0
+            ) | (
+                table_business_rules['Denominação_2'] != 'nan'
             ),
             0,
             table_business_rules['Pendente']
@@ -442,7 +464,6 @@ class TableCreator:
             0,
             table_business_rules['pending_analysis']
         )
-
 
         return cls(table_business_rules)
 
@@ -493,3 +514,154 @@ class TableCreator:
         result['percent_price_variation'] = (result['current_price'] / result['last_price']) - 1
         
         return cls(result)
+    
+    @classmethod
+    def create_table_freight(cls, table_billing_ytd, table_ibge):
+        df_cidades = table_billing_ytd.copy()
+
+        df_cidades['Cidade'] = df_cidades['Cidade'].apply(lambda x: unidecode(str(x)).strip().title())
+        df_cidades['UF'] = df_cidades['UF'].str.strip().str.upper()
+
+        df_cidades = df_cidades.groupby(['Cidade', 'UF'])[['Quantidade', 'AFrete']].sum().reset_index()
+        
+        if not all(col in df_cidades.columns for col in ['Cidade', 'UF']):
+            print("Erro: O DataFrame de entrada precisa conter as colunas 'Cidade' e 'UF'.")
+            return pd.DataFrame()
+        try:
+            # Lê o arquivo CSV fornecido diretamente
+            df_ibge = table_ibge.copy()
+        except FileNotFoundError:
+            print("Certifique-se de que o nome do arquivo e o caminho estão corretos.")
+            return pd.DataFrame()
+
+        # --- Dicionário de Capitais e Listas de Classificação ---
+        CAPITAIS_BRASIL = {
+            'AC': 'Rio Branco', 'AL': 'Maceió', 'AP': 'Macapá', 'AM': 'Manaus', 'BA': 'Salvador',
+            'CE': 'Fortaleza', 'DF': 'Brasília', 'ES': 'Vitória', 'GO': 'Goiânia', 'MA': 'São Luís',
+            'MT': 'Cuiabá', 'MS': 'Campo Grande', 'MG': 'Belo Horizonte', 'PA': 'Belém',
+            'PB': 'João Pessoa', 'PR': 'Curitiba', 'PE': 'Recife', 'PI': 'Teresina',
+            'RJ': 'Rio de Janeiro', 'RN': 'Natal', 'RS': 'Porto Alegre', 'RO': 'Porto Velho',
+            'RR': 'Boa Vista', 'SC': 'Florianópolis', 'SP': 'São Paulo', 'SE': 'Aracaju', 'TO': 'Palmas'
+        }
+        CAPITAIS_NORM = {uf: unidecode(capital).title() for uf, capital in CAPITAIS_BRASIL.items()}
+        acesso_remoto_ufs = ["AM", "AC", "RR", "AP", "RO"]
+
+        # --- Preparação dos Dados para Junção (Merge) ---
+        df_classificado = df_cidades.copy()
+        # Normaliza os dados do seu DataFrame de vendas
+        # df_classificado['Cidade'] = df_classificado['Cidade'].apply(lambda x: unidecode(str(x)).strip().title())
+        # df_classificado['UF'] = df_classificado['UF'].str.strip().str.upper()
+
+        # Normaliza os dados da planilha do IBGE
+        df_ibge['Cidade'] = df_ibge['Cidade'].apply(lambda x: unidecode(str(x)).strip().title())
+        df_ibge['UF'] = df_ibge['UF'].str.strip().str.upper()
+        
+        # Junta o DataFrame do usuário com a base do IBGE
+        df_merged = pd.merge(
+            df_classificado,
+            df_ibge[['Cidade', 'UF', 'Populacao']],
+            on=['Cidade', 'UF'],
+            how='left'
+        )
+
+        # --- Lógica de Classificação ---
+        def classificar_cidade(row):
+            capital_do_estado = CAPITAIS_NORM.get(row['UF'])
+            populacao = row['Populacao'] if pd.notna(row['Populacao']) else 0
+
+            if (row['Cidade'] == capital_do_estado) or (populacao > 700000):
+                return "Polo Estratégico"
+            if populacao > 100000:
+                return "Eixo Regional"
+            if row['UF'] in acesso_remoto_ufs:
+                return "Acesso Remoto"
+            return "Interior Conectado"
+
+        df_merged['Classificacao'] = df_merged.apply(classificar_cidade, axis=1)
+
+        # Limpeza final
+        colunas_finais = list(df_cidades.columns) + ['Classificacao']
+
+        df_final = df_merged[colunas_finais].copy()
+
+        df_final['Custo_Unitario_Medio'] = df_final['AFrete'] / df_final['Quantidade']
+
+        #Máscara para identificar as linhas com dados problemáticos
+        mascara_invalidos = (df_final['AFrete'] <= 0) | (df_final['Quantidade'] <= 0)
+
+        df_final['Custo_Corrigido'] = df_final['Custo_Unitario_Medio'].where(~mascara_invalidos, np.nan)
+
+        medias_grupo = df_final.groupby(['UF', 'Classificacao'])['Custo_Corrigido'].transform('mean')
+
+        df_final['Custo_Corrigido'] = df_final['Custo_Corrigido'].fillna(medias_grupo)
+
+        df_final['Custo_Unitario_Medio'] = df_final['Custo_Corrigido']
+
+        df_final = df_final.loc[(df_final['Cidade'] != 'nan'), ['Cidade', 'UF', 'Classificacao', 'Custo_Unitario_Medio', 'Quantidade', 'AFrete']]
+
+        return cls(df_final)
+    
+    @classmethod
+    def create_table_alert_limits(cls, table_billing, table_frete):
+
+        df_faturamento = table_billing.copy()
+        df_classificacao = table_frete.copy()
+
+        # --- 2. Limpar e Agregar os Dados de Faturamento ---
+        # Padroniza os nomes das cidades para a junção (merge)
+        df_faturamento['Cidade_Normalizada'] = df_faturamento['Cidade'].apply(lambda x: unidecode(str(x)).strip().title())
+
+        # Agrupa os dados por cidade e UF para ter os totais históricos
+        df_faturamento_agg = df_faturamento.groupby(['Cidade_Normalizada', 'UF']).agg(
+            Faturamento_Total_Historico=('SalesRevenue', 'sum'),
+            Frete_Total_Historico=('AFrete', 'sum')
+        ).reset_index()
+
+        # --- 3. Unir Faturamento com Classificação Logística ---
+        # Prepara a tabela de classificação para a junção
+        df_classificacao_lookup = df_classificacao[['Cidade', 'UF', 'Classificacao']].copy()
+        # Renomeia a coluna para corresponder
+        df_classificacao_lookup.rename(columns={'Cidade': 'Cidade_Normalizada'}, inplace=True)
+
+        # Une as duas tabelas. Cidades da base de faturamento agora terão sua classificação
+        df_merged = pd.merge(
+            df_faturamento_agg,
+            df_classificacao_lookup,
+            on=['Cidade_Normalizada', 'UF'],
+            how='left'
+        )
+        # Se alguma cidade não for encontrada na tabela de classificação, assume 'Interior Conectado'
+        df_merged['Classificacao'] = df_merged['Classificacao'].fillna('Interior Conectado')
+
+
+        # --- 4. Calcular o Coeficiente Histórico (ICF) ---
+        # Apenas faturamentos positivos são considerados para um índice válido
+        mascara_receita_valida = df_merged['Faturamento_Total_Historico'] > 0
+        df_merged['ICF_Historico_%'] = 0.0
+        df_merged.loc[mascara_receita_valida, 'ICF_Historico_%'] = (
+            df_merged.loc[mascara_receita_valida, 'Frete_Total_Historico'] /
+            df_merged.loc[mascara_receita_valida, 'Faturamento_Total_Historico']
+        )
+        # Garante que o índice não seja negativo (caso de devoluções, etc.)
+        df_merged['ICF_Historico_%'] = df_merged['ICF_Historico_%'].clip(lower=0)
+
+
+        # --- 5. Definir e Aplicar o Limite de Alerta Dinâmico ---
+        multiplicadores = {
+            'Polo Estratégico': 1.4,   # 40% acima da média histórica
+            'Eixo Regional': 1.5,      # 50% acima da média histórica
+            'Interior Conectado': 1.6, # 60% acima da média histórica
+            'Acesso Remoto': 1.8       # 80% acima da média histórica
+        }
+        df_merged['Multiplicador_Tolerancia'] = df_merged['Classificacao'].map(multiplicadores)
+        df_merged['Limite_Alerta_%'] = df_merged['ICF_Historico_%'] * df_merged['Multiplicador_Tolerancia']
+
+
+        # --- 6. Formatar e Retornar o DataFrame Final ---
+        colunas_finais = [
+            'Cidade_Normalizada', 'UF', 'ICF_Historico_%', 'Limite_Alerta_%'
+        ]
+        df_final = df_merged[colunas_finais].rename(columns={'Cidade_Normalizada': 'Cidade'})
+        df_final = df_final.sort_values(by=['UF', 'Cidade']).reset_index(drop=True)
+
+        return cls(df_final)

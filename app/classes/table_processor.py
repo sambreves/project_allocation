@@ -1,6 +1,8 @@
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.decomposition import PCA
+from sklearn.linear_model import LinearRegression
 from pulp import LpProblem, LpVariable, lpSum, LpMinimize, PULP_CBC_CMD
+from unidecode import unidecode
 
 import pandas as pd
 import numpy as np
@@ -9,6 +11,9 @@ NUM_CAIXAS_LIPURO_50ML = 10
 NUM_CAIXAS_LIPURO_20ML = 5
 NUM_CAIXAS_LIPURO_100ML = 10
 LIMITE_MAX_CONSUMO_ESTOQUE = 0.81
+
+SKU_DRUGS = ['3547817', '3547825', '3547833']
+GRUPO_CAM = ["REDE D'OR", 'DASA', 'AMERICAS', 'AMIL', 'Oncoclínicas']
 
 class TableProcessor:
     def __init__(self, data):
@@ -27,12 +32,6 @@ class TableProcessor:
         )
 
         table_params['percent_recorrencia'] = (table_params['qtd_meses_faturados'] / 12)
-
-        table_params['sales_IV FLUIDS & IRRIGATION/Hopistal Care'] = (
-                    table_params['sales_hp_with_IV FLUIDS & IRRIGATION'] / table_params['sales_revenue_hp_ytd'])
-        
-        table_params['sales_DRUGS/Hopistal Care'] = (
-                    table_params['sales_hp_with_DRUGS'] / table_params['sales_revenue_hp_ytd'])
         
         table_params['consumo_recorrencia'] = (table_params['Qtd_YTD'] / table_params['qtd_meses_faturados'])
 
@@ -347,7 +346,7 @@ class TableProcessor:
     @classmethod
     def treat_allocation_table(cls, table):
 
-        tableMain = table
+        tableMain = table.copy()
 
         #Zerar as OV's que receberam alocação parcial
         tableMain['AllocatedVolume'] = np.where(
@@ -399,11 +398,136 @@ class TableProcessor:
             'Liberação Parcial - Estoque Crítico',
         ]
 
-        tableMain['Status'] = np.select(conditions, choices, default='')
+        tableMain['Denominação_2'] = np.where(
+            tableMain['Denominação_2'] == 'nan',
+            np.select(conditions, choices, default=''),
+            tableMain['Denominação_2']
+        )
+
+        tableMain.rename(columns={'Denominação_2': 'Status'}, inplace=True)
 
         tableMain = tableMain.rename(columns={'Num Linha': 'Item SO'})
-        tableMain = tableMain.reindex(['OV','SKU', 'Item SO', 'AllocatedVolume', 'DataPreparo', 'CD', 'CC', 'Nome 1', 'Pendente',
-                                       'Customer Group 1', 'GrupoKAM', 'REGIONAL', 'Valor item OV', 'Status', 'coefficient_NM'], axis=1)
         
         return cls(tableMain)
     
+    @classmethod
+    def create_minimum_order(cls, table):
+        table_minimum_order = table.copy()
+
+        mascara_invalidos = (table_minimum_order['Limite_Alerta_%'] <= 0)
+
+        table_minimum_order['Limite_Alerta_%_Corrigido'] = table_minimum_order['Limite_Alerta_%'].where(~mascara_invalidos, np.nan)
+
+        medias_grupo = table_minimum_order.groupby(['UF', 'Classificacao'])['Limite_Alerta_%_Corrigido'].transform('mean')
+
+        table_minimum_order['Limite_Alerta_%_Corrigido'] = table_minimum_order['Limite_Alerta_%_Corrigido'].fillna(medias_grupo)
+
+        table_minimum_order['Limite_Alerta_%'] = table_minimum_order['Limite_Alerta_%_Corrigido']
+
+        table_minimum_order['AllocatedVolumeCC'] = table_minimum_order.groupby(['CC'])['AllocatedVolume'].transform('sum')
+        table_minimum_order['frete_cc'] = table_minimum_order['Custo_Unitario_Medio'] * table_minimum_order['AllocatedVolumeCC']
+
+        ratio = table_minimum_order['frete_cc'] / table_minimum_order['sales_revenue_cc']
+
+        table_minimum_order['frete_cc/sales_revenue_cc'] = np.nan_to_num(ratio, nan=0.0, posinf=0.0, neginf=0.0)
+
+        mascara = (
+            (table_minimum_order['Customer Group 1'] != 'Público') &
+            (table_minimum_order['Classificacao'] != 'Polo Estratégico') &
+            ~(table_minimum_order['GrupoKAM'].isin(GRUPO_CAM)) &
+            ~(table_minimum_order['SKU'].isin(SKU_DRUGS)) &
+            (table_minimum_order['frete_cc/sales_revenue_cc'] > table_minimum_order['Limite_Alerta_%'])
+        )
+        
+        table_minimum_order['AllocatedVolumeValidated'] = table_minimum_order['AllocatedVolume'].where(~mascara, 0)
+        table_minimum_order['Status'] = table_minimum_order['Status'].where(~mascara, 'Aguardando Revisão: Custo de Frete Elevado')
+
+        table_minimum_order['AllocatedVolume'] = table_minimum_order['AllocatedVolumeValidated']
+
+        table_minimum_order = table_minimum_order.reindex(['OV','SKU', 'Item SO', 'AllocatedVolume', 'DataPreparo', 'CD', 'CC', 'Nome 1', 'Pendente',
+                                    'Customer Group 1', 'GrupoKAM', 'REGIONAL', 'Valor item OV', 'Status', 'Tipo de pedido', 'Cidade', 'UF',
+                                    'coefficient_NM', 'Limite_Alerta_%', 'ConsumoEstoque', 'ConsumoSaldoRegional', 'frete_cc/sales_revenue_cc'], axis=1)
+
+        return cls(table_minimum_order)
+    
+    @classmethod
+    def estimate_base_cost_per_group(cls, table_frete):
+        """
+        Estima o custo base de envio (custo fixo) para cada grupo de UF e Classificação
+        usando regressão linear sobre os dados históricos.
+        """        
+        # Classifica as cidades da base de faturamento
+        # (Usando a função offline que já criamos)
+        df_faturamento_classificado = table_frete.copy()
+
+        # Agrupa por UF e Classificação para a análise
+        grupos = df_faturamento_classificado.groupby(['UF', 'Classificacao'])
+        resultados_custo_base = []
+
+        for nome, grupo in grupos:
+            # A regressão linear precisa de pelo menos 2 pontos para ser calculada
+            if len(grupo) < 2:
+                continue
+
+            X = grupo[['Quantidade']]
+            y = grupo['AFrete']
+
+            model = LinearRegression()
+            model.fit(X, y)
+
+            # O intercepto é o nosso custo base estimado
+            intercepto = model.intercept_
+            
+            # O custo base não pode ser negativo, então pegamos o máximo entre o resultado e 0
+            custo_base_estimado = max(0, intercepto)
+            
+            resultados_custo_base.append({
+                'UF': nome[0],
+                'Classificacao': nome[1],
+                'Custo_Base_Estimado': custo_base_estimado
+            })
+        
+        df_custo_base = pd.DataFrame(resultados_custo_base)
+        return cls(df_custo_base)
+        
+    @classmethod
+    def suggest_dynamic_minimum_quantity(cls, df_validado, df_custo_base, coluna_preco_unitario):
+        df_result = df_validado.copy()
+
+        # Junta o custo base estimado na tabela principal
+        df_result = pd.merge(
+            df_result,
+            df_custo_base,
+            on=['UF', 'Classificacao'],
+            how='left'
+        )
+        # Para grupos que não tiveram custo estimado, usa um valor padrão (mediana geral)
+        fallback_custo_base = df_result['Custo_Base_Estimado'].median()
+        df_result['Custo_Base_Estimado'] = df_result['Custo_Base_Estimado'].fillna(fallback_custo_base)
+
+        # O resto da lógica é a mesma, mas usando o Custo_Base_Estimado
+        mascara_invalidacao_frete = (
+            (df_result['Customer Group 1'] != 'Público') &
+            (df_result['Classificacao'] != 'Polo Estratégico') &
+            ~(df_result['GrupoKAM'].isin(GRUPO_CAM)) &
+            ~(df_result['SKU'].isin(SKU_DRUGS)) &
+            (df_result['frete_cc/sales_revenue_cc'] > df_result['Limite_Alerta_%'])
+        )
+        linhas_para_calcular = (df_result['AllocatedVolumeValidated'] == 0) & mascara_invalidacao_frete
+
+        F_base = df_result['Custo_Base_Estimado'] # <- Usando o custo dinâmico
+        F_var = df_result['Custo_Unitario_Medio']
+        L = df_result['Limite_Alerta_%']
+        P = df_result[coluna_preco_unitario]
+        P = P.replace(0, np.nan).ffill().fillna(0.01)
+
+        denominador = (L * P) - F_var
+        
+        quantidade_minima = np.where(
+            (denominador > 0) & linhas_para_calcular,
+            np.ceil(F_base / denominador),
+            np.nan
+        )
+
+        df_result['Sugestao_Quantidade_Minima'] = quantidade_minima
+        return cls(df_result)

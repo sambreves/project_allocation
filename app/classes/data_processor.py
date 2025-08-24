@@ -12,7 +12,8 @@ class DataProcessor:
 
         columns_to_convert = [
             'CC', 'SKU', 'CD', 'REGIONAL', 'Customer Group 1', 'Status verificações', 
-            'OV', 'GrupoKAM', 'Nome 1', 'Num Linha', 'Item SO'
+            'OV', 'GrupoKAM', 'Nome 1', 'Num Linha', 'Item SO', 'Denominação_2',
+            'Tipo de pedido', 'Classificacao', 'Cidade', 'UF'
         ]
         for col in data.columns:
             if col in columns_to_convert:

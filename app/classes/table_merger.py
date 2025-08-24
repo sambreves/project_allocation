@@ -60,13 +60,17 @@ class TableMerger:
         table_customers,
         table_billing_am,
         table_volume_reg,
-        table_stock
+        table_stock,
+        table_frete,
+        table_alert_limits
     ):
-        table = table_pending.merge(table_general[['CC', 'SKU', 'coefficient_NM']], on=['CC', 'SKU'], how='left')
-        table = table.merge(table_customers[['CC', 'Customer Group 1', 'GrupoKAM', 'Nome 1']], on=['CC'], how='left')
+        table = table_pending.merge(table_general[['CC', 'SKU', 'current_price', 'coefficient_NM']], on=['CC', 'SKU'], how='left')
+        table = table.merge(table_customers[['CC', 'Customer Group 1', 'GrupoKAM', 'Nome 1', 'Cidade', 'UF']], on=['CC'], how='left')
         table = table.merge(table_billing_am, on=['CC', 'SKU'], how='left')
         table = table.merge(table_volume_reg, on=['SKU', 'REGIONAL'], how='left')
         table = table.merge(table_stock, on=['SKU', 'CD'], how='left')
+        table = table.merge(table_frete.loc[:, ['Cidade', 'UF', 'Classificacao', 'Custo_Unitario_Medio']], on=['Cidade', 'UF'], how='left')
+        table = table.merge(table_alert_limits, on=['Cidade', 'UF'], how='left')
 
         table = table.fillna(0)
 
